@@ -42,15 +42,66 @@ class MXFPFormat:
 
     def float_to_int(self, f: float) ->int:
         """Given a Python float convert to the best mxfp float (expressed as an int) that represents it."""
-        pass
+        if math.isnan(f):
+            return (1 << (self.exp_bits + self.mantissa_bits + 1)) - 1  # All ones for NaN
+        
+        if f == 0:
+            return 0  # Zero is represented as all zeros
+        
+        sign = 1 if f < 0 else 0
+        f = abs(f)
+        
+        # Handle infinity and large numbers
+        if math.isinf(f) or f >= 2 ** (2 ** self.exp_bits - self.bias):
+            if self.mxfp_overflow == 'saturate':
+                return self.neg_clamp_value if sign else self.pos_clamp_value
+            else:  # overflow
+                return self.neg_clamp_value if sign else self.pos_clamp_value
+        
+        # Find the exponent
+        exp = math.floor(math.log2(f))
+        exp = max(exp, 1 - self.bias)  # Handle subnormals
+        
+        # Calculate mantissa
+        mantissa = int(round((f / (2 ** exp) - 1) * (2 ** self.mantissa_bits)))
+        
+        # Adjust for bias
+        exp += self.bias
+        
+        # Combine sign, exponent, and mantissa
+        result = (sign << (self.exp_bits + self.mantissa_bits)) | (exp << self.mantissa_bits) | mantissa
+        
+        return result
 
     def createLUT_for_int_to_float(self) ->array.array:
         """Create a LUT to convert an int in representing a MXFP float into a Python float"""
-        pass
+        lut = array.array('f')
+        for i in range(1 << (self.exp_bits + self.mantissa_bits + 1)):
+            sign = -1 if i & (1 << (self.exp_bits + self.mantissa_bits)) else 1
+            exp = (i >> self.mantissa_bits) & ((1 << self.exp_bits) - 1)
+            mantissa = i & ((1 << self.mantissa_bits) - 1)
+            
+            if exp == 0 and mantissa == 0:
+                lut.append(0.0)
+            elif exp == (1 << self.exp_bits) - 1:
+                if mantissa == 0:
+                    lut.append(float('inf') if sign > 0 else float('-inf'))
+                else:
+                    lut.append(float('nan'))
+            else:
+                value = sign * (1 + mantissa / (2 ** self.mantissa_bits)) * (2 ** (exp - self.bias))
+                lut.append(value)
+        
+        return lut
 
     def createLUT_for_float16_to_mxfp(self) ->bytes:
         """Create a LUT to convert a float16 into a MXFP format"""
-        pass
+        lut = bytearray(65536)
+        for i in range(65536):
+            f16 = struct.unpack('!e', struct.pack('!H', i))[0]
+            mxfp = self.float_to_int(f16)
+            lut[i] = mxfp
+        return bytes(lut)
 
 
 e2m1mxfp_fmt = MXFPFormat(exp_bits=2, mantissa_bits=1, bias=1,
