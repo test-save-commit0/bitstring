@@ -11,9 +11,9 @@ from bitstring.mxfp import e3m2mxfp_fmt, e2m3mxfp_fmt, e2m1mxfp_fmt, e4m3mxfp_sa
 CACHE_SIZE = 256
 
 
-def tidy_input_string(s: str) ->str:
+def tidy_input_string(s: str) -> str:
     """Return string made lowercase and with all whitespace and underscores removed."""
-    pass
+    return ''.join(char.lower() for char in s if char not in (' ', '\t', '\n', '\r', '_'))
 
 
 e8m0mxfp_allowed_values = [float(2 ** x) for x in range(-127, 128)]
