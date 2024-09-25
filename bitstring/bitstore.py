@@ -53,10 +53,29 @@ class BitStore:
 
     def _copy(self) ->BitStore:
         """Always creates a copy, even if instance is immutable."""
-        pass
+        new_bitstore = BitStore()
+        new_bitstore._bitarray = self._bitarray.copy()
+        new_bitstore.modified_length = self.modified_length
+        new_bitstore.immutable = False  # The copy is always mutable
+        return new_bitstore
 
     def __getitem__(self, item: Union[int, slice], /) ->Union[int, BitStore]:
-        raise NotImplementedError
+        if isinstance(item, int):
+            return self.getindex(item)
+        elif isinstance(item, slice):
+            new_bitstore = BitStore()
+            new_bitstore._bitarray = self._bitarray[item]
+            return new_bitstore
+        else:
+            raise TypeError("Invalid argument type.")
+
+    def getindex(self, i: int) ->int:
+        """Get the bit at index i (LSB0 order)."""
+        if i < 0:
+            i += len(self)
+        if i < 0 or i >= len(self):
+            raise IndexError("Bit index out of range")
+        return self._bitarray[len(self) - 1 - i]
 
     def __len__(self) ->int:
         return (self.modified_length if self.modified_length is not None else
