@@ -421,16 +421,33 @@ class Bits:
 
     def _clear(self) ->None:
         """Reset the bitstring to an empty state."""
-        pass
+        self._bitstore = BitStore()
 
     def _setauto_no_length_or_offset(self, s: BitsType, /) ->None:
         """Set bitstring from a bitstring, file, bool, array, iterable or string."""
         pass
 
-    def _setauto(self, s: BitsType, length: Optional[int], offset: Optional
-        [int], /) ->None:
+    def _setauto(self, s: BitsType, length: Optional[int], offset: Optional[int], /) ->None:
         """Set bitstring from a bitstring, file, bool, array, iterable or string."""
-        pass
+        if isinstance(s, Bits):
+            self._bitstore = s._bitstore.copy()
+        elif isinstance(s, (bytes, bytearray)):
+            self._setbytes_with_truncation(s, length, offset)
+        elif isinstance(s, str):
+            if s.startswith('0b'):
+                self._setbin_safe(s[2:], length)
+            elif s.startswith('0x'):
+                self._sethex(s[2:], length)
+            elif s.startswith('0o'):
+                self._setoct(s[2:], length)
+            else:
+                self._setfile(s, length, offset)
+        elif isinstance(s, (int, bool)):
+            self._setuint(int(s), length)
+        elif isinstance(s, (array.array, list, tuple)):
+            self._setbytes(bytes(s), length)
+        else:
+            raise TypeError(f"Cannot initialise bitstring from {type(s)}")
 
     def _setfile(self, filename: str, length: Optional[int]=None, offset:
         Optional[int]=None) ->None:
@@ -445,11 +462,23 @@ class Bits:
     def _setbytes_with_truncation(self, data: Union[bytearray, bytes],
         length: Optional[int]=None, offset: Optional[int]=None) ->None:
         """Set the data from a bytes or bytearray object, with optional offset and length truncations."""
-        pass
+        if offset is None:
+            offset = 0
+        if length is None:
+            length = len(data) * 8 - offset
+        start_byte, start_bit = divmod(offset, 8)
+        end_byte = (offset + length + 7) // 8
+        truncated_data = data[start_byte:end_byte]
+        self._bitstore = BitStore(truncated_data)
+        if start_bit:
+            self._bitstore.lshift(start_bit)
+        if (offset + length) % 8:
+            self._bitstore.rshift(8 - ((offset + length) % 8))
+        self._bitstore.truncate(length)
 
     def _getbytes(self) ->bytes:
         """Return the data as an ordinary bytes object."""
-        pass
+        return self._bitstore.tobytes()
     _unprintable = list(range(0, 32))
     _unprintable.extend(range(127, 255))
 
@@ -571,7 +600,13 @@ class Bits:
 
     def _setbin_safe(self, binstring: str, length: None=None) ->None:
         """Reset the bitstring to the value given in binstring."""
-        pass
+        if set(binstring) - set('01'):
+            raise ValueError("binstring must contain only '0' and '1'")
+        if length is not None and len(binstring) > length:
+            raise ValueError("binstring is too long")
+        self._bitstore = BitStore.frombinstr(binstring)
+        if length is not None:
+            self._bitstore.prepend(BitStore(length - len(binstring)))
 
     def _setbin_unsafe(self, binstring: str, length: None=None) ->None:
         """Same as _setbin_safe, but input isn't sanity checked. binstring mustn't start with '0b'."""
@@ -591,7 +626,15 @@ class Bits:
 
     def _sethex(self, hexstring: str, length: None=None) ->None:
         """Reset the bitstring to have the value given in hexstring."""
-        pass
+        try:
+            byte_data = bytes.fromhex(hexstring)
+        except ValueError:
+            raise ValueError("Invalid hexadecimal string")
+        self._bitstore = BitStore(byte_data)
+        if length is not None:
+            if len(self._bitstore) > length:
+                raise ValueError("hexstring is too long")
+            self._bitstore.prepend(BitStore(length - len(self._bitstore)))
 
     def _gethex(self) ->str:
         """Return the hexadecimal representation as a string.
@@ -603,15 +646,19 @@ class Bits:
 
     def _getlength(self) ->int:
         """Return the length of the bitstring in bits."""
-        pass
+        return len(self._bitstore)
 
     def _copy(self: TBits) ->TBits:
         """Create and return a new copy of the Bits (always in memory)."""
-        pass
+        new_bits = object.__new__(self.__class__)
+        new_bits._bitstore = self._bitstore.copy()
+        return new_bits
 
     def _slice(self: TBits, start: int, end: int) ->TBits:
         """Used internally to get a slice, without error checking."""
-        pass
+        new_bits = object.__new__(self.__class__)
+        new_bits._bitstore = self._bitstore[start:end]
+        return new_bits
 
     def _absolute_slice(self: TBits, start: int, end: int) ->TBits:
         """Used internally to get a slice, without error checking.
@@ -625,11 +672,13 @@ class Bits:
 
     def _addright(self, bs: Bits, /) ->None:
         """Add a bitstring to the RHS of the current bitstring."""
-        pass
+        self._bitstore.extend(bs._bitstore)
 
     def _addleft(self, bs: Bits, /) ->None:
         """Prepend a bitstring to the current bitstring."""
-        pass
+        new_bitstore = bs._bitstore.copy()
+        new_bitstore.extend(self._bitstore)
+        self._bitstore = new_bitstore
 
     def _truncateleft(self: TBits, bits: int, /) ->TBits:
         """Truncate bits from the start of the bitstring. Return the truncated bits."""
@@ -657,11 +706,11 @@ class Bits:
 
     def _invert(self, pos: int, /) ->None:
         """Flip bit at pos 1<->0."""
-        pass
+        self._bitstore.invert(pos)
 
     def _invert_all(self) ->None:
         """Invert every bit."""
-        pass
+        self._bitstore.invert_all()
 
     def _ilshift(self: TBits, n: int, /) ->TBits:
         """Shift bits by n to the left in place. Return self."""
@@ -825,7 +874,7 @@ class Bits:
         Up to seven zero bits will be added at the end to byte align.
 
         """
-        pass
+        return self._bitstore.tobytes()
 
     def tobitarray(self) ->bitarray.bitarray:
         """Convert the bitstring to a bitarray object."""
