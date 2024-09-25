@@ -109,19 +109,25 @@ class ConstBitStream(Bits):
 
     def _setbytepos(self, bytepos: int) ->None:
         """Move to absolute byte-aligned position in stream."""
-        pass
+        if bytepos * 8 > len(self):
+            raise ValueError("Byte position out of range")
+        self._pos = bytepos * 8
 
     def _getbytepos(self) ->int:
         """Return the current position in the stream in bytes. Must be byte aligned."""
-        pass
+        if self._pos % 8:
+            raise ValueError("Current position is not byte aligned")
+        return self._pos // 8
 
     def _setbitpos(self, pos: int) ->None:
         """Move to absolute position bit in bitstream."""
-        pass
+        if pos < 0 or pos > len(self):
+            raise ValueError("Bit position out of range")
+        self._pos = pos
 
     def _getbitpos(self) ->int:
         """Return the current position in the stream in bits."""
-        pass
+        return self._pos
 
     def __copy__(self: TConstBitStream) ->TConstBitStream:
         """Return a new copy of the ConstBitStream for the copy module."""
@@ -251,7 +257,24 @@ class ConstBitStream(Bits):
         if end < start.
 
         """
-        pass
+        bs = Bits(bs)
+        if not bs:
+            raise ValueError("Cannot find an empty bitstring")
+        
+        start = 0 if start is None else start
+        end = len(self) if end is None else end
+        
+        if start < 0 or end > len(self) or end < start:
+            raise ValueError("Invalid start or end values")
+        
+        if bytealigned:
+            start = (start + 7) // 8 * 8
+        
+        pos = self._bitstore.rfind(bs._bitstore, start, end, bytealigned)
+        if pos >= 0:
+            self._pos = pos
+            return (pos,)
+        return ()
 
     def read(self, fmt: Union[int, str, Dtype]) ->Union[int, float, str,
         Bits, bool, bytes, None]:
@@ -290,7 +313,19 @@ class ConstBitStream(Bits):
         Raises ValueError if the format is not understood.
 
         """
-        pass
+        if isinstance(fmt, int):
+            fmt = f'bits:{fmt}'
+        
+        dtype = Dtype(fmt)
+        length = dtype.length
+        
+        if self._pos + length > len(self):
+            raise bitstring.ReadError("Not enough bits available")
+        
+        value = dtype.get_fn(self[self._pos:self._pos + length])
+        self._pos += length
+        
+        return value
 
     def readlist(self, fmt: Union[str, List[Union[int, str, Dtype]]], **kwargs
         ) ->List[Union[int, float, str, Bits, bool, bytes, None]]:
@@ -314,7 +349,23 @@ class ConstBitStream(Bits):
         >>> i, bs1, bs2 = s.readlist(['uint:12', 10, 10])
 
         """
-        pass
+        tokens = []
+        if isinstance(fmt, str):
+            fmt = fmt.replace(' ', '')
+            tokens = fmt.split(',')
+        elif isinstance(fmt, list):
+            tokens = fmt
+        else:
+            raise ValueError("fmt must be either a string or a list")
+
+        return_values = []
+        for token in tokens:
+            if isinstance(token, int):
+                token = f'bits:{token}'
+            value = self.read(token)
+            if not token.startswith('pad:'):
+                return_values.append(value)
+        return return_values
 
     def readto(self: TConstBitStream, bs: BitsType, /, bytealigned:
         Optional[bool]=None) ->TConstBitStream:
@@ -328,7 +379,18 @@ class ConstBitStream(Bits):
         Raises ReadError if bs is not found.
 
         """
-        pass
+        bs = Bits(bs)
+        if not bs:
+            raise ValueError("Cannot find an empty bitstring")
+
+        found = self.find(bs, start=self._pos, bytealigned=bytealigned)
+        if not found:
+            raise bitstring.ReadError("Substring not found")
+
+        end = found[0] + len(bs)
+        return_value = self[self._pos:end]
+        self._pos = end
+        return return_value
 
     def peek(self: TConstBitStream, fmt: Union[int, str]) ->Union[int,
         float, str, TConstBitStream, bool, bytes, None]:
@@ -345,7 +407,11 @@ class ConstBitStream(Bits):
         See the docstring for 'read' for token examples.
 
         """
-        pass
+        original_pos = self._pos
+        try:
+            return self.read(fmt)
+        finally:
+            self._pos = original_pos
 
     def peeklist(self, fmt: Union[str, List[Union[int, str]]], **kwargs
         ) ->List[Union[int, float, str, Bits, None]]:
