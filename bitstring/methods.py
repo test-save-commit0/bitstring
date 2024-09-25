@@ -43,4 +43,37 @@ def pack(fmt: Union[str, List[str]], *values, **kwargs) ->BitStream:
     >>> u = pack('uint:8=a, uint:8=b, uint:55=a', a=6, b=44)
 
     """
-    pass
+    if isinstance(fmt, list):
+        fmt = ','.join(fmt)
+
+    tokens, _ = tokenparser(fmt)
+    bitstring_list = []
+    value_index = 0
+
+    for token in tokens:
+        if '=' in token[1]:
+            name, token_str = token[1].split('=')
+            value = kwargs.get(name.strip())
+            if value is None:
+                raise CreationError(f"Keyword '{name.strip()}' not provided")
+        else:
+            if value_index >= len(values):
+                raise CreationError("Not enough values provided")
+            value = values[value_index]
+            value_index += 1
+            token_str = token[1]
+
+        try:
+            bs = bitstore_from_token(token_str, value)
+            bitstring_list.append(bs)
+        except ValueError as e:
+            raise CreationError(str(e))
+
+    if value_index < len(values):
+        raise CreationError("Too many values provided")
+
+    result = BitStream()
+    for bs in bitstring_list:
+        result.append(bs)
+
+    return result
