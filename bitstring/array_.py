@@ -95,7 +95,7 @@ class Array:
 
     def _create_element(self, value: ElementType) ->Bits:
         """Create Bits from value according to the token_name and token_length"""
-        pass
+        return self._dtype.set_fn(value)
 
     def __len__(self) ->int:
         return len(self.data) // self._dtype.length
@@ -206,13 +206,20 @@ class Array:
 
     def astype(self, dtype: Union[str, Dtype]) ->Array:
         """Return Array with elements of new dtype, initialised from current Array."""
-        pass
+        new_array = Array(dtype)
+        new_array.extend(self)
+        return new_array
 
     def insert(self, i: int, x: ElementType) ->None:
         """Insert a new element into the Array at position i.
 
         """
-        pass
+        if i < 0:
+            i += len(self)
+        if i < 0 or i > len(self):
+            raise IndexError("Array index out of range")
+        element = self._create_element(x)
+        self.data.insert(i * self._dtype.length, element)
 
     def pop(self, i: int=-1) ->ElementType:
         """Return and remove an element of the Array.
@@ -220,7 +227,15 @@ class Array:
         Default is to return and remove the final element.
 
         """
-        pass
+        if i < 0:
+            i += len(self)
+        if i < 0 or i >= len(self):
+            raise IndexError("Array index out of range")
+        start = i * self._dtype.length
+        end = start + self._dtype.length
+        element = self._dtype.read_fn(self.data, start=start)
+        del self.data[start:end]
+        return element
 
     def byteswap(self) ->None:
         """Change the endianness in-place of all items in the Array.
@@ -228,7 +243,14 @@ class Array:
         If the Array format is not a whole number of bytes a ValueError will be raised.
 
         """
-        pass
+        if self._dtype.length % 8 != 0:
+            raise ValueError("Array format is not a whole number of bytes")
+        bytes_per_item = self._dtype.length // 8
+        for i in range(0, len(self.data), self._dtype.length):
+            item = self.data[i:i + self._dtype.length]
+            swapped = BitArray(item)
+            swapped.byteswap()
+            self.data.overwrite(swapped, i)
 
     def count(self, value: ElementType) ->int:
         """Return count of Array items that equal value.
@@ -238,7 +260,13 @@ class Array:
         For floating point types using a value of float('nan') will count the number of elements that are NaN.
 
         """
-        pass
+        count = 0
+        for item in self:
+            if math.isnan(value) and math.isnan(item):
+                count += 1
+            elif item == value:
+                count += 1
+        return count
 
     def tobytes(self) ->bytes:
         """Return the Array data as a bytes object, padding with zero bits if needed.
@@ -246,7 +274,7 @@ class Array:
         Up to seven zero bits will be added at the end to byte align.
 
         """
-        pass
+        return self.data.tobytes()
 
     def tofile(self, f: BinaryIO) ->None:
         """Write the Array data to a file object, padding with zero bits if needed.
@@ -254,7 +282,7 @@ class Array:
         Up to seven zero bits will be added at the end to byte align.
 
         """
-        pass
+        f.write(self.tobytes())
 
     def pp(self, fmt: Optional[str]=None, width: int=120, show_offset: bool
         =True, stream: TextIO=sys.stdout) ->None:
