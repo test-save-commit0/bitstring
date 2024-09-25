@@ -190,7 +190,8 @@ class ConstBitStream(Bits):
         The current bit position will be moved to the end of the BitStream.
 
         """
-        pass
+        self._bitstore.append(Bits(bs)._bitstore)
+        self._pos = len(self)
 
     def __repr__(self) ->str:
         """Return representation that could be used to recreate the bitstring.
@@ -210,7 +211,18 @@ class ConstBitStream(Bits):
         Raises ValueError if pos < 0 or pos > len(self).
 
         """
-        pass
+        if pos is None:
+            pos = self._pos
+        if pos < 0 or pos > len(self):
+            raise ValueError("pos must be between 0 and len(self)")
+        
+        bs = Bits(bs)
+        end = pos + len(bs)
+        if end > len(self):
+            self._bitstore.append(bs._bitstore)
+        else:
+            self._bitstore[pos:end] = bs._bitstore
+        self._pos = end
 
     def find(self, bs: BitsType, /, start: Optional[int]=None, end:
         Optional[int]=None, bytealigned: Optional[bool]=None) ->Union[Tuple
@@ -235,7 +247,24 @@ class ConstBitStream(Bits):
         (6,)
 
         """
-        pass
+        bs = Bits(bs)
+        if not bs:
+            raise ValueError("Cannot find an empty bitstring")
+        
+        start = 0 if start is None else start
+        end = len(self) if end is None else end
+        
+        if start < 0 or end > len(self) or end < start:
+            raise ValueError("Invalid start or end values")
+        
+        if bytealigned:
+            start = (start + 7) // 8 * 8
+        
+        pos = self._bitstore.find(bs._bitstore, start, end, bytealigned)
+        if pos >= 0:
+            self._pos = pos
+            return (pos,)
+        return ()
 
     def rfind(self, bs: BitsType, /, start: Optional[int]=None, end:
         Optional[int]=None, bytealigned: Optional[bool]=None) ->Union[Tuple
@@ -603,7 +632,9 @@ class BitStream(ConstBitStream, bitstring.BitArray):
         bs -- The bitstring to prepend.
 
         """
-        pass
+        bs = Bits(bs)
+        self._bitstore = bs._bitstore + self._bitstore
+        self._pos += len(bs)
 
     def __setitem__(self, /, key: Union[slice, int], value: BitsType) ->None:
         length_before = len(self)
@@ -636,7 +667,14 @@ class BitStream(ConstBitStream, bitstring.BitArray):
         Raises ValueError if pos < 0 or pos > len(self).
 
         """
-        pass
+        if pos is None:
+            pos = self._pos
+        if pos < 0 or pos > len(self):
+            raise ValueError("pos must be between 0 and len(self)")
+        
+        bs = Bits(bs)
+        self._bitstore = self._bitstore[:pos] + bs._bitstore + self._bitstore[pos:]
+        self._pos = pos + len(bs)
 
     def replace(self, old: BitsType, new: BitsType, start: Optional[int]=
         None, end: Optional[int]=None, count: Optional[int]=None,
@@ -660,4 +698,29 @@ class BitStream(ConstBitStream, bitstring.BitArray):
         out of range.
 
         """
-        pass
+        old = Bits(old)
+        new = Bits(new)
+        if not old:
+            raise ValueError("Cannot replace an empty bitstring")
+        
+        start = 0 if start is None else start
+        end = len(self) if end is None else end
+        count = -1 if count is None else count
+        
+        if start < 0 or end > len(self) or start > end:
+            raise ValueError("Invalid start or end values")
+        
+        replacements = 0
+        pos = start
+        while count != 0:
+            found = self.find(old, start=pos, end=end, bytealigned=bytealigned)
+            if not found:
+                break
+            pos = found[0]
+            self._bitstore = self._bitstore[:pos] + new._bitstore + self._bitstore[pos + len(old):]
+            pos += len(new)
+            end += len(new) - len(old)
+            replacements += 1
+            count -= 1
+        
+        return replacements
